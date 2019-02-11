@@ -1,0 +1,11 @@
+[package]
+name = "dxvk-cache-tool"
+version = "0.3.0"
+authors = ["Pavel Kolchev <pavelkolchev@gmail.com>"]
+description = "Standalone dxvk-cache merger"
+license = "MIT/Apache-2.0"
+readme = "README.md"
+edition = "2018"
+
+[dependencies]
+rust-crypto = "^0.2"
