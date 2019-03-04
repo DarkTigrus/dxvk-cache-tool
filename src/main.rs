@@ -3,49 +3,29 @@ extern crate crypto;
 use std::env;
 use std::fs::File;
 use std::io::{self, BufReader, BufWriter, prelude::*};
-use std::mem;
 use std::path::Path;
 use std::ffi::OsStr;
 
 use crypto::digest::Digest;
 use crypto::sha1::Sha1;
 
-const SHA1_EMPTY: [u8; 20] = [218,  57,   163,  238,  94, 
-                              107,  75,   13,   50,   85, 
-                              191,  239,  149,  96,   24, 
-                              144,  175,  216,  7,    9];
-const STATE_CACHE_DATA_SIZE: usize = 1804;
+const HASH_SIZE: usize = 20;
+const SHA1_EMPTY: [u8; HASH_SIZE] = [218,  57,   163,  238,  94, 
+                                     107,  75,   13,   50,   85, 
+                                     191,  239,  149,  96,   24, 
+                                     144,  175,  216,  7,    9];
 const STATE_CACHE_VERSION: u32 = 3;
 
 struct DxvkStateCacheHeader {
     magic:      [u8; 4],
     version:    u32,
-    entry_size: u32
+    entry_size: usize
 }
 
-impl Default for DxvkStateCacheHeader {
-    fn default() -> DxvkStateCacheHeader {
-        DxvkStateCacheHeader {
-            magic:      b"DXVK".to_owned(),
-            version:    STATE_CACHE_VERSION,
-            entry_size: mem::size_of::<DxvkStateCacheEntry>() as u32
-        }
-    }
-}
-
-#[derive(Copy, Clone)]
+#[derive(Clone)]
 struct DxvkStateCacheEntry {
-    data: [u8; STATE_CACHE_DATA_SIZE],
-    hash: [u8; 20]
-}
-
-impl Default for DxvkStateCacheEntry {
-    fn default() -> DxvkStateCacheEntry {
-        DxvkStateCacheEntry {
-            data: [0; STATE_CACHE_DATA_SIZE],
-            hash: [0; 20]
-        }
-    }
+    data: Vec<u8>,
+    hash: Vec<u8>
 }
 
 impl PartialEq for DxvkStateCacheEntry {
@@ -55,6 +35,13 @@ impl PartialEq for DxvkStateCacheEntry {
 }
 
 impl DxvkStateCacheEntry {
+    fn with_capacity(capacity: usize) -> DxvkStateCacheEntry {
+        DxvkStateCacheEntry {
+            data: vec![0; capacity - HASH_SIZE],
+            hash: vec![0; HASH_SIZE]
+        }
+    }
+
     fn is_valid(&self) -> bool {
         let mut hasher = Sha1::new();
         hasher.input(&self.data);
@@ -62,7 +49,7 @@ impl DxvkStateCacheEntry {
         let mut computed_hash = [0; 20];
         hasher.result(&mut computed_hash);
 
-        computed_hash == self.hash
+        computed_hash == *self.hash
     }
 }
 
@@ -93,7 +80,7 @@ fn write_u32<W: Write>(w: &mut W, n: u32) -> io::Result<()> {
 fn main() -> Result<(), io::Error> {
     if env::args().any(|x| x == "--help" || x == "-h")
     || env::args().len() <= 1 {
-        println!("USAGE: dxvk-cache-tool [FILE]...");
+        println!("USAGE:\n\tdxvk-cache-tool [FILE]...");
         return Ok(());
     }
 
@@ -124,7 +111,7 @@ fn main() -> Result<(), io::Error> {
                 magic
             },
             version:    read_u32(&mut reader)?,
-            entry_size: read_u32(&mut reader)?
+            entry_size: read_u32(&mut reader)? as usize
         };
 
         if &header.magic != b"DXVK" {
@@ -138,7 +125,9 @@ fn main() -> Result<(), io::Error> {
             continue;
         }
 
-        let mut entry = DxvkStateCacheEntry::default();
+        let mut entry = DxvkStateCacheEntry::with_capacity(
+            header.entry_size
+        );
         loop {
             match reader.read_exact(&mut entry.data) {
                 Ok(_)   =>  (),
@@ -154,7 +143,7 @@ fn main() -> Result<(), io::Error> {
                 Err(e)  =>  return Err(e)
             };
             if entry.is_valid() && !entries.contains(&entry) {
-                entries.push(entry);
+                entries.push(entry.clone());
             }
         }
     }
@@ -166,10 +155,19 @@ fn main() -> Result<(), io::Error> {
 
     let file = File::create("output.dxvk-cache")?;
     let mut writer = BufWriter::new(file);
-    let header = DxvkStateCacheHeader::default();
+    let header = DxvkStateCacheHeader {
+        magic:      b"DXVK".to_owned(),
+        version:    STATE_CACHE_VERSION,
+        entry_size: {
+            entries.first().map(
+                |e| e.data.len() + e.hash.len()
+            ).expect("And now... the darkness holds dominion – black as death")
+        }
+    };
+
     writer.write_all(&header.magic)?;
     write_u32(&mut writer, header.version)?;
-    write_u32(&mut writer, header.entry_size)?;
+    write_u32(&mut writer, header.entry_size as u32)?;
     for entry in &entries {
         writer.write_all(&entry.data)?;
         writer.write_all(&entry.hash)?;
