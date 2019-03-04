@@ -2,11 +2,9 @@ extern crate crypto;
 
 use std::env;
 use std::fs::File;
-use std::io::prelude::*;
-use std::io::{self, BufReader, Read};
+use std::io::{self, BufReader, BufWriter, Read, Write};
 use std::mem;
 use std::path::Path;
-use std::slice;
 use std::ffi::OsStr;
 
 use crypto::digest::Digest;
@@ -19,9 +17,6 @@ const SHA1_EMPTY: [u8; 20] = [218,  57,   163,  238,  94,
 const STATE_CACHE_DATA_SIZE: usize = 1804;
 const STATE_CACHE_VERSION: u32 = 3;
 
-#[repr(C)]
-#[allow(dead_code)]
-#[derive(Copy, Clone)]
 struct DxvkStateCacheHeader {
     magic:      [u8; 4],
     version:    u32,
@@ -35,11 +30,9 @@ impl Default for DxvkStateCacheHeader {
             version:    STATE_CACHE_VERSION,
             entry_size: mem::size_of::<DxvkStateCacheEntry>() as u32
         }
-   }
+    }
 }
 
-#[repr(C)]
-#[allow(dead_code)]
 #[derive(Copy, Clone)]
 struct DxvkStateCacheEntry {
     data: [u8; STATE_CACHE_DATA_SIZE],
@@ -52,7 +45,7 @@ impl Default for DxvkStateCacheEntry {
             data: [0; STATE_CACHE_DATA_SIZE],
             hash: [0; 20]
         }
-   }
+    }
 }
 
 impl PartialEq for DxvkStateCacheEntry {
@@ -62,36 +55,39 @@ impl PartialEq for DxvkStateCacheEntry {
 }
 
 impl DxvkStateCacheEntry {
-    fn is_valid(mut self) -> bool {
-        let expected_hash = self.hash;
-        self.hash = SHA1_EMPTY;
-
+    fn is_valid(&self) -> bool {
         let mut hasher = Sha1::new();
-        hasher.input(any_as_u8_slice(&self));
-        let mut computed_hash = [0u8; 20];
+        hasher.input(&self.data);
+        hasher.input(&SHA1_EMPTY);
+        let mut computed_hash = [0; 20];
         hasher.result(&mut computed_hash);
 
-        self.hash = expected_hash;
-        computed_hash == expected_hash
+        computed_hash == self.hash
     }
 }
 
-fn read_into_type<T, R: Read>(read: &mut R, data: &mut T)
-    -> io::Result<()> {
-    let mut buffer = unsafe { 
-        slice::from_raw_parts_mut(
-            &mut *data as *mut T as *mut u8,
-            std::mem::size_of::<T>()
-    )};
-    read.read_exact(&mut buffer)
+fn read_u32<R: Read>(r: &mut R) -> io::Result<u32> {
+    let mut buf = [0; 4];
+    match r.read(&mut buf) {
+        Ok(_) => {
+            Ok(
+                (u32::from(buf[0])      ) +
+                (u32::from(buf[1]) <<  8) +
+                (u32::from(buf[2]) << 16) +
+                (u32::from(buf[3]) << 24)
+            )
+        },
+        Err(e) => Err(e)
+    }
 }
 
-fn any_as_u8_slice<T>(p: &T) -> &[u8] {
-    unsafe {
-        slice::from_raw_parts(
-            p as *const _ as *const u8,
-            std::mem::size_of::<T>()
-    )}
+fn write_u32<W: Write>(w: &mut W, n: u32) -> io::Result<()> {
+    let mut buf = [0; 4];
+    buf[0] =  n        as u8;
+    buf[1] = (n >> 8)  as u8;
+    buf[2] = (n >> 16) as u8;
+    buf[3] = (n >> 24) as u8;
+    w.write_all(&buf)
 }
 
 fn main() {
@@ -119,10 +115,17 @@ fn main() {
         }
 
         let file = File::open(path).expect("Unable to open file");
-        let mut buf_reader = BufReader::new(file);
+        let mut reader = BufReader::new(file);
 
-        let mut header = DxvkStateCacheHeader::default();
-        read_into_type(&mut buf_reader, &mut header).unwrap();
+        let header = DxvkStateCacheHeader {
+            magic: {
+                let mut magic = [0; 4];
+                reader.read_exact(&mut magic).unwrap();
+                magic
+            },
+            version:    read_u32(&mut reader).unwrap(),
+            entry_size: read_u32(&mut reader).unwrap()
+        };
 
         if &header.magic != b"DXVK" {
             println!("Magic string mismatch");
@@ -136,7 +139,16 @@ fn main() {
         }
 
         let mut entry = DxvkStateCacheEntry::default();
-        while read_into_type(&mut buf_reader, &mut entry).is_ok() {
+        loop {
+            match reader.read_exact(&mut entry.data) {
+                Ok(_)   =>  (),
+                Err(_)  =>  break
+            };
+            match reader.read_exact(&mut entry.hash) {
+                Ok(_)   =>  (),
+                Err(_)  =>  break
+            };
+
             if entry.is_valid() && !entries.contains(&entry) {
                 entries.push(entry);
             }
@@ -148,13 +160,15 @@ fn main() {
         return;
     }
 
+    let file = File::create("output.dxvk-cache").unwrap();
+    let mut writer = BufWriter::new(file);
     let header = DxvkStateCacheHeader::default();
-    let mut buffer = File::create("output.dxvk-cache").unwrap();
-    buffer.write_all(any_as_u8_slice(&header)).unwrap();
+    writer.write_all(&header.magic).unwrap();
+    write_u32(&mut writer, header.version).unwrap();
+    write_u32(&mut writer, header.entry_size).unwrap();
     for entry in &entries {
-        buffer.write_all(
-            any_as_u8_slice(entry)
-        ).expect("Unable to write buffer");
+        writer.write_all(&entry.data).unwrap();
+        writer.write_all(&entry.hash).unwrap();
     }
 
     println!("Merged cache output.dxvk-cache contains {} entries",
