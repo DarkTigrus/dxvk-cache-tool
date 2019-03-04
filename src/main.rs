@@ -2,7 +2,7 @@ extern crate crypto;
 
 use std::env;
 use std::fs::File;
-use std::io::{self, BufReader, BufWriter, Read, Write};
+use std::io::{self, BufReader, BufWriter, prelude::*};
 use std::mem;
 use std::path::Path;
 use std::ffi::OsStr;
@@ -90,11 +90,11 @@ fn write_u32<W: Write>(w: &mut W, n: u32) -> io::Result<()> {
     w.write_all(&buf)
 }
 
-fn main() {
+fn main() -> Result<(), io::Error> {
     if env::args().any(|x| x == "--help" || x == "-h")
-    || env::args().len() == 1 {
+    || env::args().len() <= 1 {
         println!("USAGE: dxvk-cache-tool [FILE]...");
-        return;
+        return Ok(());
     }
 
     let mut entries = Vec::new();
@@ -120,11 +120,11 @@ fn main() {
         let header = DxvkStateCacheHeader {
             magic: {
                 let mut magic = [0; 4];
-                reader.read_exact(&mut magic).unwrap();
+                reader.read_exact(&mut magic)?;
                 magic
             },
-            version:    read_u32(&mut reader).unwrap(),
-            entry_size: read_u32(&mut reader).unwrap()
+            version:    read_u32(&mut reader)?,
+            entry_size: read_u32(&mut reader)?
         };
 
         if &header.magic != b"DXVK" {
@@ -142,13 +142,17 @@ fn main() {
         loop {
             match reader.read_exact(&mut entry.data) {
                 Ok(_)   =>  (),
-                Err(_)  =>  break
+                Err(e)  =>  {
+                    if e.kind() == io::ErrorKind::UnexpectedEof {
+                        break
+                    }
+                    return Err(e);
+                }
             };
             match reader.read_exact(&mut entry.hash) {
                 Ok(_)   =>  (),
-                Err(_)  =>  break
+                Err(e)  =>  return Err(e)
             };
-
             if entry.is_valid() && !entries.contains(&entry) {
                 entries.push(entry);
             }
@@ -157,20 +161,21 @@ fn main() {
     
     if entries.is_empty() {
         println!("No valid cache entries found");
-        return;
+        return Ok(());
     }
 
-    let file = File::create("output.dxvk-cache").unwrap();
+    let file = File::create("output.dxvk-cache")?;
     let mut writer = BufWriter::new(file);
     let header = DxvkStateCacheHeader::default();
-    writer.write_all(&header.magic).unwrap();
-    write_u32(&mut writer, header.version).unwrap();
-    write_u32(&mut writer, header.entry_size).unwrap();
+    writer.write_all(&header.magic)?;
+    write_u32(&mut writer, header.version)?;
+    write_u32(&mut writer, header.entry_size)?;
     for entry in &entries {
-        writer.write_all(&entry.data).unwrap();
-        writer.write_all(&entry.hash).unwrap();
+        writer.write_all(&entry.data)?;
+        writer.write_all(&entry.hash)?;
     }
 
     println!("Merged cache output.dxvk-cache contains {} entries",
         entries.len());
+    Ok(())
 }
