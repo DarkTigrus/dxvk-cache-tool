@@ -78,15 +78,35 @@ fn write_u32<W: Write>(w: &mut W, n: u32) -> io::Result<()> {
 }
 
 fn main() -> Result<(), io::Error> {
+    let mut args: Vec<String> = env::args().collect();
     if env::args().any(|x| x == "--help" || x == "-h")
     || env::args().len() <= 1 {
-        println!("USAGE:\n\tdxvk-cache-tool [FILE]...");
+        println!("Standalone dxvk-cache merger");
+        println!("USAGE:\n\tdxvk-cache-tool [OPTION]... [FILE]...\n");
+        println!("OPTIONS:\n\t-o, --output\tOutput file");
         return Ok(());
     }
 
-    let mut entries = Vec::new();
+    let output_path = match env::args().position(|x| x == "--output" 
+                                                  || x == "-o") {
+        Some(p) => {
+            match env::args().nth(p + 1) {
+                Some(s) => {
+                    args.remove(p);
+                    args.remove(p);
+                    s
+                },
+                None => {
+                    println!("Missing output file name argument");
+                    return Ok(())
+                }
+            }
+        }
+        None => "output.dxvk-cache".to_owned()
+    };
 
-    for arg in env::args().skip(1) {
+    let mut entries = Vec::new();
+    for arg in args.into_iter().skip(1) {
         println!("Importing {}", arg);
         let path = Path::new(&arg);
 
@@ -153,7 +173,7 @@ fn main() -> Result<(), io::Error> {
         return Ok(());
     }
 
-    let file = File::create("output.dxvk-cache")?;
+    let file = File::create(&output_path)?;
     let mut writer = BufWriter::new(file);
     let header = DxvkStateCacheHeader {
         magic:      b"DXVK".to_owned(),
@@ -173,7 +193,8 @@ fn main() -> Result<(), io::Error> {
         writer.write_all(&entry.hash)?;
     }
 
-    println!("Merged cache output.dxvk-cache contains {} entries",
+    println!("Merged cache {} contains {} entries",
+        &output_path, 
         entries.len());
     Ok(())
 }
