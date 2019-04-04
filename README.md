@@ -5,5 +5,7 @@ Standalone dxvk-cache merger
 Usage
 -----
 ```
-dxvk-cache-tool [FILE]...
+dxvk-cache-tool [OPTION]... [FILE]...
+
+    OPTIONS:    -o, --output    Output file
 ```
