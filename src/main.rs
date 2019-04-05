@@ -1,5 +1,6 @@
 extern crate crypto;
 
+use std::cmp::Ordering;
 use std::env;
 use std::fs::File;
 use std::io::{self, BufReader, BufWriter, Error, ErrorKind, Read, Write};
@@ -28,11 +29,29 @@ struct DxvkStateCacheEntry {
     hash: Vec<u8>
 }
 
+impl Ord for DxvkStateCacheEntry {
+    fn cmp(&self, other: &DxvkStateCacheEntry) -> Ordering {
+        let sum_a =  self.hash.iter()
+                         .rev().fold(0, |a, &b| a * 2 + u32::from(b));
+        let sum_b = other.hash.iter()
+                         .rev().fold(0, |a, &b| a * 2 + u32::from(b));
+        sum_a.cmp(&sum_b)
+    }
+}
+
+impl PartialOrd for DxvkStateCacheEntry {
+    fn partial_cmp(&self, other: &DxvkStateCacheEntry) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
 impl PartialEq for DxvkStateCacheEntry {
     fn eq(&self, other: &DxvkStateCacheEntry) -> bool {
         self.hash == other.hash
     }
 }
+
+impl Eq for DxvkStateCacheEntry { }
 
 impl DxvkStateCacheEntry {
     fn with_capacity(capacity: usize) -> DxvkStateCacheEntry {
@@ -167,7 +186,7 @@ fn main() -> Result<(), io::Error> {
                 Ok(_)   =>  (),
                 Err(e)  =>  return Err(e)
             };
-            if entry.is_valid() && !entries.contains(&entry) {
+            if entry.is_valid() {
                 entries.push(entry.clone());
             }
         }
@@ -177,6 +196,9 @@ fn main() -> Result<(), io::Error> {
         return Err(Error::new(ErrorKind::Other, 
             "No valid cache entries found"));
     }
+
+    entries.sort();
+    entries.dedup();
 
     let file = File::create(&output_path)?;
     let mut writer = BufWriter::new(file);
