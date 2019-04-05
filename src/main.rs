@@ -2,7 +2,7 @@ extern crate crypto;
 
 use std::env;
 use std::fs::File;
-use std::io::{self, BufReader, BufWriter, Read, Write};
+use std::io::{self, BufReader, BufWriter, Error, ErrorKind, Read, Write};
 use std::path::Path;
 use std::ffi::OsStr;
 
@@ -103,8 +103,8 @@ fn main() -> Result<(), io::Error> {
                     s
                 },
                 None => {
-                    println!("Missing output file name argument");
-                    return Ok(())
+                    return Err(Error::new(ErrorKind::InvalidInput, 
+                        "Output file name argument is missing"));
                 }
             }
         }
@@ -117,14 +117,14 @@ fn main() -> Result<(), io::Error> {
         let path = Path::new(&arg);
 
         if !path.exists() {
-            println!("File does not exists");
-            continue;
+            return Err(Error::new(ErrorKind::NotFound, 
+                "File does not exists"));
         }
 
         if path.extension().is_some() 
         && path.extension().and_then(OsStr::to_str) == Some(".dxvk-cache") {
-            println!("File extension mismatch");
-            continue;
+            return Err(Error::new(ErrorKind::InvalidInput, 
+                "File extension mismatch"));
         }
 
         let file = File::open(path).expect("Unable to open file");
@@ -141,14 +141,13 @@ fn main() -> Result<(), io::Error> {
         };
 
         if &header.magic != b"DXVK" {
-            println!("Magic string mismatch");
-            continue;
+            return Err(Error::new(ErrorKind::InvalidData, 
+                "Magic string mismatch"));
         }
 
         if header.version != STATE_CACHE_VERSION {
-            println!("Unsupported cache version {}",
-                    header.version);
-            continue;
+            return Err(Error::new(ErrorKind::InvalidData, 
+                format!("Unsupported cache version {}", header.version)));
         }
 
         let mut entry = DxvkStateCacheEntry::with_capacity(
@@ -175,8 +174,8 @@ fn main() -> Result<(), io::Error> {
     }
     
     if entries.is_empty() {
-        println!("No valid cache entries found");
-        return Ok(());
+        return Err(Error::new(ErrorKind::Other, 
+            "No valid cache entries found"));
     }
 
     let file = File::create(&output_path)?;
