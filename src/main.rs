@@ -3,7 +3,8 @@ extern crate crypto;
 use std::cmp::Ordering;
 use std::env;
 use std::fs::File;
-use std::io::{self, BufReader, BufWriter, Error, ErrorKind, Read, Write};
+use std::io::{self, BufReader, BufWriter, Error, ErrorKind,
+              Seek, SeekFrom, Read, Write};
 use std::path::Path;
 use std::ffi::OsStr;
 
@@ -61,14 +62,34 @@ impl DxvkStateCacheEntry {
         }
     }
 
-    fn is_valid(&self) -> bool {
+    fn compute_hash(&self) -> [u8; 20] {
         let mut hasher = Sha1::new();
         hasher.input(&self.data);
         hasher.input(&SHA1_EMPTY);
         let mut computed_hash = [0; 20];
         hasher.result(&mut computed_hash);
 
-        computed_hash == *self.hash
+        computed_hash
+    }
+
+    fn is_valid(&self) -> bool {
+        self.compute_hash() == *self.hash
+    }
+
+    fn convert_v2(&mut self) {
+        static OFFSET_1: usize = 1204;
+        static OFFSET_2: usize = 1208;
+
+        // rsDepthClipEnable = !rsDepthClipEnable;
+        if let Some(e) = self.data.get_mut(OFFSET_1) {
+            assert!(*e == 0 || *e == 1);
+            *e = if *e == 0 { 1 } else { 0 };
+        }
+        // rsDepthBiasEnable = VK_FALSE;
+        if let Some(e) = self.data.get_mut(OFFSET_2) {
+            assert!(*e == 0 || *e == 1);
+            *e = 0;
+        }
     }
 }
 
@@ -165,9 +186,14 @@ fn main() -> Result<(), io::Error> {
         }
 
         if header.version != STATE_CACHE_VERSION {
-            return Err(Error::new(ErrorKind::InvalidData, 
-                format!("Unsupported cache version {}", header.version)));
-        }
+            if header.version == 2 {
+                println!("Converting outdated cache version {}",
+                    &header.version);
+            } else {
+                return Err(Error::new(ErrorKind::InvalidData, 
+                    format!("Unsupported cache version {}", header.version)))
+            }
+        };
 
         let mut entry = DxvkStateCacheEntry::with_capacity(
             header.entry_size
@@ -182,16 +208,22 @@ fn main() -> Result<(), io::Error> {
                     return Err(e);
                 }
             };
-            match reader.read_exact(&mut entry.hash) {
-                Ok(_)   =>  (),
-                Err(e)  =>  return Err(e)
-            };
+            if header.version == STATE_CACHE_VERSION {
+                match reader.read_exact(&mut entry.hash) {
+                    Ok(_)   =>  (),
+                    Err(e)  =>  return Err(e)
+                };
+            } else {
+                entry.convert_v2();
+                entry.hash = entry.compute_hash().to_vec();
+                reader.seek(SeekFrom::Current(HASH_SIZE as i64))?;
+            }
             if entry.is_valid() {
                 entries.push(entry.clone());
             }
         }
     }
-    
+
     if entries.is_empty() {
         return Err(Error::new(ErrorKind::Other, 
             "No valid cache entries found"));
