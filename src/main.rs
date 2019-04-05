@@ -1,16 +1,17 @@
 extern crate crypto;
 
-use std::cmp::Ordering;
 use std::env;
 use std::fs::File;
 use std::io::{self, BufReader, BufWriter, Error, ErrorKind,
               Seek, SeekFrom, Read, Write};
 use std::path::Path;
+use std::collections::HashMap;
 use std::ffi::OsStr;
 
 use crypto::digest::Digest;
 use crypto::sha1::Sha1;
 
+const DATA_SIZE: usize = 1804;
 const HASH_SIZE: usize = 20;
 const SHA1_EMPTY: [u8; HASH_SIZE] = [218,  57,   163,  238,  94, 
                                      107,  75,   13,   50,   85, 
@@ -26,54 +27,30 @@ struct DxvkStateCacheHeader {
 
 #[derive(Clone)]
 struct DxvkStateCacheEntry {
-    data: Vec<u8>,
-    hash: Vec<u8>
+    data: [u8; DATA_SIZE],
+    hash: [u8; HASH_SIZE]
 }
-
-impl Ord for DxvkStateCacheEntry {
-    fn cmp(&self, other: &DxvkStateCacheEntry) -> Ordering {
-        let sum_a =  self.hash.iter()
-                         .rev().fold(0, |a, &b| a * 2 + u32::from(b));
-        let sum_b = other.hash.iter()
-                         .rev().fold(0, |a, &b| a * 2 + u32::from(b));
-        sum_a.cmp(&sum_b)
-    }
-}
-
-impl PartialOrd for DxvkStateCacheEntry {
-    fn partial_cmp(&self, other: &DxvkStateCacheEntry) -> Option<Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl PartialEq for DxvkStateCacheEntry {
-    fn eq(&self, other: &DxvkStateCacheEntry) -> bool {
-        self.hash == other.hash
-    }
-}
-
-impl Eq for DxvkStateCacheEntry { }
 
 impl DxvkStateCacheEntry {
-    fn with_capacity(capacity: usize) -> DxvkStateCacheEntry {
+    fn new() -> DxvkStateCacheEntry {
         DxvkStateCacheEntry {
-            data: vec![0; capacity - HASH_SIZE],
-            hash: vec![0; HASH_SIZE]
+            data: [0; DATA_SIZE],
+            hash: [0; HASH_SIZE]
         }
     }
 
-    fn compute_hash(&self) -> [u8; 20] {
+    fn compute_hash(&self) -> [u8; HASH_SIZE] {
         let mut hasher = Sha1::new();
         hasher.input(&self.data);
         hasher.input(&SHA1_EMPTY);
-        let mut computed_hash = [0; 20];
+        let mut computed_hash = [0; HASH_SIZE];
         hasher.result(&mut computed_hash);
 
         computed_hash
     }
 
     fn is_valid(&self) -> bool {
-        self.compute_hash() == *self.hash
+        self.compute_hash() == self.hash
     }
 
     fn convert_v2(&mut self) {
@@ -151,7 +128,7 @@ fn main() -> Result<(), io::Error> {
         None => "output.dxvk-cache".to_owned()
     };
 
-    let mut entries = Vec::new();
+    let mut entries = HashMap::new();
     for arg in args.into_iter().skip(1) {
         println!("Importing {}", arg);
         let path = Path::new(&arg);
@@ -194,11 +171,9 @@ fn main() -> Result<(), io::Error> {
                     format!("Unsupported cache version {}", header.version)))
             }
         };
-
-        let mut entry = DxvkStateCacheEntry::with_capacity(
-            header.entry_size
-        );
+        
         loop {
+            let mut entry = DxvkStateCacheEntry::new();
             match reader.read_exact(&mut entry.data) {
                 Ok(_)   =>  (),
                 Err(e)  =>  {
@@ -215,11 +190,11 @@ fn main() -> Result<(), io::Error> {
                 };
             } else {
                 entry.convert_v2();
-                entry.hash = entry.compute_hash().to_vec();
+                entry.hash = entry.compute_hash();
                 reader.seek(SeekFrom::Current(HASH_SIZE as i64))?;
             }
             if entry.is_valid() {
-                entries.push(entry.clone());
+                entries.insert(entry.hash, entry.data);
             }
         }
     }
@@ -229,27 +204,20 @@ fn main() -> Result<(), io::Error> {
             "No valid cache entries found"));
     }
 
-    entries.sort();
-    entries.dedup();
-
     let file = File::create(&output_path)?;
     let mut writer = BufWriter::new(file);
     let header = DxvkStateCacheHeader {
         magic:      b"DXVK".to_owned(),
         version:    STATE_CACHE_VERSION,
-        entry_size: {
-            entries.first().map(
-                |e| e.data.len() + e.hash.len()
-            ).expect("And now... the darkness holds dominion – black as death")
-        }
+        entry_size: DATA_SIZE + HASH_SIZE
     };
 
     writer.write_all(&header.magic)?;
     writer.write_u32(header.version)?;
     writer.write_u32(header.entry_size as u32)?;
     for entry in &entries {
-        writer.write_all(&entry.data)?;
-        writer.write_all(&entry.hash)?;
+        writer.write_all(entry.1)?;
+        writer.write_all(entry.0)?;
     }
 
     println!("Merged cache {} contains {} entries",
