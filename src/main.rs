@@ -2,7 +2,7 @@ extern crate crypto;
 
 use std::env;
 use std::fs::File;
-use std::io::{self, BufReader, BufWriter, prelude::*};
+use std::io::{self, BufReader, BufWriter, Read, Write};
 use std::path::Path;
 use std::ffi::OsStr;
 
@@ -53,29 +53,35 @@ impl DxvkStateCacheEntry {
     }
 }
 
-fn read_u32<R: Read>(r: &mut R) -> io::Result<u32> {
-    let mut buf = [0; 4];
-    match r.read(&mut buf) {
-        Ok(_) => {
-            Ok(
-                (u32::from(buf[0])      ) +
-                (u32::from(buf[1]) <<  8) +
-                (u32::from(buf[2]) << 16) +
-                (u32::from(buf[3]) << 24)
-            )
-        },
-        Err(e) => Err(e)
+trait ReadEx: Read {
+    fn read_u32(&mut self) -> io::Result<u32> {
+        let mut buf = [0; 4];
+        match self.read(&mut buf) {
+            Ok(_) => {
+                Ok(
+                    (u32::from(buf[0])      ) +
+                    (u32::from(buf[1]) <<  8) +
+                    (u32::from(buf[2]) << 16) +
+                    (u32::from(buf[3]) << 24)
+                )
+            },
+            Err(e) => Err(e)
+        }
     }
 }
+impl<R: Read> ReadEx for BufReader<R> {}
 
-fn write_u32<W: Write>(w: &mut W, n: u32) -> io::Result<()> {
-    let mut buf = [0; 4];
-    buf[0] =  n        as u8;
-    buf[1] = (n >> 8)  as u8;
-    buf[2] = (n >> 16) as u8;
-    buf[3] = (n >> 24) as u8;
-    w.write_all(&buf)
+trait WriteEx: Write { 
+    fn write_u32(&mut self, n: u32) -> io::Result<()> {
+        let mut buf = [0; 4];
+        buf[0] =  n        as u8;
+        buf[1] = (n >> 8)  as u8;
+        buf[2] = (n >> 16) as u8;
+        buf[3] = (n >> 24) as u8;
+        self.write_all(&buf)
+    }
 }
+impl<W: Write> WriteEx for BufWriter<W> { }
 
 fn main() -> Result<(), io::Error> {
     let mut args: Vec<String> = env::args().collect();
@@ -130,8 +136,8 @@ fn main() -> Result<(), io::Error> {
                 reader.read_exact(&mut magic)?;
                 magic
             },
-            version:    read_u32(&mut reader)?,
-            entry_size: read_u32(&mut reader)? as usize
+            version:    reader.read_u32()?,
+            entry_size: reader.read_u32()? as usize
         };
 
         if &header.magic != b"DXVK" {
@@ -186,8 +192,8 @@ fn main() -> Result<(), io::Error> {
     };
 
     writer.write_all(&header.magic)?;
-    write_u32(&mut writer, header.version)?;
-    write_u32(&mut writer, header.entry_size as u32)?;
+    writer.write_u32(header.version)?;
+    writer.write_u32(header.entry_size as u32)?;
     for entry in &entries {
         writer.write_all(&entry.data)?;
         writer.write_all(&entry.hash)?;
