@@ -138,8 +138,7 @@ fn main() -> Result<(), io::Error> {
                 "File does not exists"));
         }
 
-        if path.extension().is_some() 
-        && path.extension().and_then(OsStr::to_str) == Some(".dxvk-cache") {
+        if path.extension().and_then(OsStr::to_str) != Some("dxvk-cache") {
             return Err(Error::new(ErrorKind::InvalidInput, 
                 "File extension mismatch"));
         }
