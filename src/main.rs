@@ -31,6 +31,16 @@ struct DxvkStateCacheEntry {
     hash: [u8; HASH_SIZE]
 }
 
+impl Default for DxvkStateCacheHeader {
+    fn default() -> DxvkStateCacheHeader {
+        DxvkStateCacheHeader {
+            magic:      b"DXVK".to_owned(),
+            version:    STATE_CACHE_VERSION,
+            entry_size: DATA_SIZE + HASH_SIZE
+        }
+    }
+}
+
 impl DxvkStateCacheEntry {
     fn new() -> DxvkStateCacheEntry {
         DxvkStateCacheEntry {
@@ -205,11 +215,7 @@ fn main() -> Result<(), io::Error> {
 
     let file = File::create(&output_path)?;
     let mut writer = BufWriter::new(file);
-    let header = DxvkStateCacheHeader {
-        magic:      b"DXVK".to_owned(),
-        version:    STATE_CACHE_VERSION,
-        entry_size: DATA_SIZE + HASH_SIZE
-    };
+    let header = DxvkStateCacheHeader::default();
 
     writer.write_all(&header.magic)?;
     writer.write_u32(header.version)?;
