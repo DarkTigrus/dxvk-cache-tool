@@ -9,3 +9,4 @@ edition = "2018"
 
 [dependencies]
 rust-crypto = "^0.2"
+linked-hash-map = "0.5.2"

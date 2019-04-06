@@ -1,15 +1,17 @@
 extern crate crypto;
+extern crate linked_hash_map;
 
 use std::env;
 use std::fs::File;
 use std::io::{self, BufReader, BufWriter, Error, ErrorKind,
               Seek, SeekFrom, Read, Write};
 use std::path::Path;
-use std::collections::HashMap;
 use std::ffi::OsStr;
 
 use crypto::digest::Digest;
 use crypto::sha1::Sha1;
+
+use linked_hash_map::LinkedHashMap;
 
 const DATA_SIZE: usize = 1804;
 const HASH_SIZE: usize = 20;
@@ -138,7 +140,7 @@ fn main() -> Result<(), io::Error> {
         None => "output.dxvk-cache".to_owned()
     };
 
-    let mut entries = HashMap::new();
+    let mut entries = LinkedHashMap::new();
     for arg in args.into_iter().skip(1) {
         println!("Importing {}", arg);
         let path = Path::new(&arg);
