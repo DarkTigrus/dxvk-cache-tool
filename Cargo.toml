@@ -8,5 +8,5 @@ readme = "README.md"
 edition = "2018"
 
 [dependencies]
-rust-crypto = "^0.2"
+sha1 = "0.6.0"
 linked-hash-map = "0.5.2"

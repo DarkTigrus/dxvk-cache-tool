@@ -1,4 +1,4 @@
-extern crate crypto;
+extern crate sha1;
 extern crate linked_hash_map;
 
 use std::env;
@@ -8,8 +8,7 @@ use std::io::{self, BufReader, BufWriter, Error, ErrorKind,
 use std::path::Path;
 use std::ffi::OsStr;
 
-use crypto::digest::Digest;
-use crypto::sha1::Sha1;
+use sha1::Sha1;
 
 use linked_hash_map::LinkedHashMap;
 
@@ -51,13 +50,10 @@ impl DxvkStateCacheEntry {
     }
 
     fn compute_hash(&self) -> [u8; HASH_SIZE] {
-        let mut hasher = Sha1::new();
-        hasher.input(&self.data);
-        hasher.input(&SHA1_EMPTY);
-        let mut computed_hash = [0; HASH_SIZE];
-        hasher.result(&mut computed_hash);
-
-        computed_hash
+        let mut hasher = Sha1::default();
+        hasher.update(&self.data);
+        hasher.update(&SHA1_EMPTY);
+        hasher.digest().bytes()
     }
 
     fn is_valid(&self) -> bool {
