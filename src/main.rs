@@ -20,6 +20,23 @@ const SHA1_EMPTY: [u8; HASH_SIZE] = [218,  57,   163,  238,  94,
                                      144,  175,  216,  7,    9];
 const SUPPORTED_VERSIONS: [u32; 2] = [2, 3];
 const DEFAULT_CACHE_VERSION: u32 = 3;
+const MAGIC_STRING: [u8; 4] = *b"DXVK";
+
+struct Config {
+    output:  String,
+    version: u32,
+    files:   Vec<String>
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Config {
+            output:  "output.dxvk-cache".to_owned(),
+            version: DEFAULT_CACHE_VERSION,
+            files:   Vec::new()
+        }
+    }
+}
 
 struct DxvkStateCacheHeader {
     magic:      [u8; 4],
@@ -123,60 +140,47 @@ fn print_help() {
     println!("Standalone dxvk-cache merger");
     println!("USAGE:\n\tdxvk-cache-tool [OPTION]... [FILE]...\n");
     println!("OPTIONS:");
-    println!("\t-o, --output [FILE]\tOutput file");
+    println!("\t-o, --output <FILE>\tOutput file");
     println!("\t-t, --target [2,3]\tTarget version");
 }
 
-fn main() -> Result<(), io::Error> {
+fn process_args() -> Config {
+    let mut config = Config::default();
     let mut args: Vec<String> = env::args().collect();
-    if env::args().any(|x| x == "--help" || x == "-h")
-    || env::args().len() <= 1 {
-        print_help();
-        return Ok(());
+    for (i, arg) in env::args().enumerate().rev() {
+        match arg.as_ref() {
+            "-h" | "--help" => {
+                print_help();
+                std::process::exit(0);
+            },
+            "-o" | "--output" => {
+                config.output = args[i+1].to_owned();
+                args.drain(i..i+2);
+            },
+            "-t" | "--target" => {
+                config.version = args[i+1].parse().expect("Not a number");
+                args.drain(i..i+2);
+            },
+            _ => ()
+        }
     }
+    args.remove(0);
+    config.files = args;
+    config
+}
 
-    let output = match env::args().position(|x| x == "-o"
-                                             || x == "--output") {
-        Some(pos) => {
-            match env::args().nth(pos + 1) {
-                Some(s) => {
-                    args.drain(pos..pos + 2);
-                    s
-                },
-                None => {
-                    return Err(Error::new(ErrorKind::InvalidInput,
-                        "Output file name argument is missing"));
-                }
-            }
-        }
-        None => "output.dxvk-cache".to_owned()
-    };
+fn main() -> Result<(), io::Error> {
+    let config = process_args();
 
-    let target_version = match env::args().position(|x| x == "-t"
-                                                     || x == "--target") {
-        Some(pos) => {
-            match env::args().nth(pos + 1) {
-                Some(v) => {
-                    args.drain(pos..pos + 2);
-                    v.parse().expect("Not a number")
-                },
-                None => {
-                    return Err(Error::new(ErrorKind::InvalidInput,
-                        "Output file name argument is missing"));
-                }
-            }
-        }
-        None => DEFAULT_CACHE_VERSION
-    };
-    if !SUPPORTED_VERSIONS.contains(&target_version) {
+    if !SUPPORTED_VERSIONS.contains(&config.version) {
         return Err(Error::new(ErrorKind::InvalidData,
-                format!("Unsupported target version {}", target_version)))
+                format!("Unsupported target version {}", config.version)))
     };
 
     let mut entries = LinkedHashMap::new();
-    for arg in args.into_iter().skip(1) {
-        println!("Importing {}", arg);
-        let path = Path::new(&arg);
+    for file in config.files {
+        println!("Importing {}", file);
+        let path = Path::new(&file);
 
         if !path.exists() {
             return Err(Error::new(ErrorKind::NotFound, 
@@ -201,7 +205,7 @@ fn main() -> Result<(), io::Error> {
             entry_size: reader.read_u32()? as usize
         };
 
-        if &header.magic != b"DXVK" {
+        if header.magic != MAGIC_STRING {
             return Err(Error::new(ErrorKind::InvalidData, 
                 "Magic string mismatch"));
         }
@@ -211,13 +215,13 @@ fn main() -> Result<(), io::Error> {
                     format!("Unsupported cache version {}", header.version)))
         };
 
-        if header.version != target_version {
+        if header.version != config.version {
             match header.version {
-                v if v > target_version => {
-                    println!("Downgrading to version {}", target_version)
+                v if v > config.version => {
+                    println!("Downgrading to version {}", config.version)
                 },
-                v if v < target_version => {
-                    println!("Upgrading to version {}", target_version)
+                v if v < config.version => {
+                    println!("Upgrading to version {}", config.version)
                 },
                 _   => ()
             }
@@ -236,16 +240,16 @@ fn main() -> Result<(), io::Error> {
                     return Err(e);
                 }
             };
-            if target_version == header.version {
+            if config.version == header.version {
                 match reader.read_exact(&mut entry.hash) {
                     Ok(_)   =>  (),
                     Err(e)  =>  return Err(e)
                 };
             } else {
-                match target_version {
+                match config.version {
                     3 => entry.upgrade_to_v3(),
                     2 => entry.downgrade_to_v2(),
-                    _ => panic!(format!("Unexected cache version {}",
+                    _ => panic!(format!("Unexpected cache version {}",
                                     header.version))
                 }
                 entry.hash = entry.compute_hash();
@@ -262,18 +266,18 @@ fn main() -> Result<(), io::Error> {
             "No valid cache entries found"));
     }
 
-    let file = File::create(&output)?;
+    let file = File::create(&config.output)?;
     let mut writer = BufWriter::new(file);
-    writer.write_all(b"DXVK")?;
-    writer.write_u32(target_version)?;
+    writer.write_all(&MAGIC_STRING)?;
+    writer.write_u32(config.version)?;
     writer.write_u32((DATA_SIZE + HASH_SIZE) as u32)?;
-    for entry in &entries {
-        writer.write_all(entry.1)?;
-        writer.write_all(entry.0)?;
+    for (hash, data) in &entries {
+        writer.write_all(data)?;
+        writer.write_all(hash)?;
     }
 
     println!("Merged cache {} contains {} entries",
-        &output, 
+        &config.output,
         entries.len());
     Ok(())
 }
