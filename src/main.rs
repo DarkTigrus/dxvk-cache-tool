@@ -18,7 +18,8 @@ const SHA1_EMPTY: [u8; HASH_SIZE] = [218,  57,   163,  238,  94,
                                      107,  75,   13,   50,   85, 
                                      191,  239,  149,  96,   24, 
                                      144,  175,  216,  7,    9];
-const STATE_CACHE_VERSION: u32 = 3;
+const SUPPORTED_VERSIONS: [u32; 2] = [2, 3];
+const DEFAULT_CACHE_VERSION: u32 = 3;
 
 struct DxvkStateCacheHeader {
     magic:      [u8; 4],
@@ -29,16 +30,6 @@ struct DxvkStateCacheHeader {
 struct DxvkStateCacheEntry {
     data: [u8; DATA_SIZE],
     hash: [u8; HASH_SIZE]
-}
-
-impl Default for DxvkStateCacheHeader {
-    fn default() -> DxvkStateCacheHeader {
-        DxvkStateCacheHeader {
-            magic:      b"DXVK".to_owned(),
-            version:    STATE_CACHE_VERSION,
-            entry_size: DATA_SIZE + HASH_SIZE
-        }
-    }
 }
 
 impl DxvkStateCacheEntry {
@@ -60,7 +51,7 @@ impl DxvkStateCacheEntry {
         self.compute_hash() == self.hash
     }
 
-    fn convert_v2(&mut self) {
+    fn upgrade_to_v3(&mut self) {
         static OFFSET_1: usize = 1204;
         static OFFSET_2: usize = 1208;
 
@@ -73,6 +64,29 @@ impl DxvkStateCacheEntry {
         if let Some(e) = self.data.get_mut(OFFSET_2) {
             assert!(*e == 0 || *e == 1);
             *e = 0;
+        }
+    }
+
+    fn downgrade_to_v2(&mut self) {
+        static OFFSET_1: usize = 1204;
+        static OFFSET_2: usize = 1208;
+
+        let mut enable_depth_bias = false;
+
+        if let Some(e) = self.data.get_mut(OFFSET_1) {
+            assert!(*e == 0 || *e == 1);
+            *e = if *e == 0 {
+                1
+            } else {
+                enable_depth_bias = true;
+                0
+            };
+        }
+        if enable_depth_bias {
+            if let Some(e) = self.data.get_mut(OFFSET_2) {
+                assert!(*e == 0 || *e == 1);
+                *e = 1;
+            }
         }
     }
 }
@@ -108,7 +122,9 @@ impl<W: Write> WriteEx for BufWriter<W> { }
 fn print_help() {
     println!("Standalone dxvk-cache merger");
     println!("USAGE:\n\tdxvk-cache-tool [OPTION]... [FILE]...\n");
-    println!("OPTIONS:\n\t-o, --output [FILE]\tOutput file");
+    println!("OPTIONS:");
+    println!("\t-o, --output [FILE]\tOutput file");
+    println!("\t-t, --target [2,3]\tTarget version");
 }
 
 fn main() -> Result<(), io::Error> {
@@ -119,20 +135,42 @@ fn main() -> Result<(), io::Error> {
         return Ok(());
     }
 
-    let output = match env::args().position(|x| x == "--output" || x == "-o") {
-        Some(p) => {
-            match env::args().nth(p + 1) {
+    let output = match env::args().position(|x| x == "-o"
+                                             || x == "--output") {
+        Some(pos) => {
+            match env::args().nth(pos + 1) {
                 Some(s) => {
-                    args.drain(p..p + 2);
+                    args.drain(pos..pos + 2);
                     s
                 },
                 None => {
-                    return Err(Error::new(ErrorKind::InvalidInput, 
+                    return Err(Error::new(ErrorKind::InvalidInput,
                         "Output file name argument is missing"));
                 }
             }
         }
         None => "output.dxvk-cache".to_owned()
+    };
+
+    let target_version = match env::args().position(|x| x == "-t"
+                                                     || x == "--target") {
+        Some(pos) => {
+            match env::args().nth(pos + 1) {
+                Some(v) => {
+                    args.drain(pos..pos + 2);
+                    v.parse().expect("Not a number")
+                },
+                None => {
+                    return Err(Error::new(ErrorKind::InvalidInput,
+                        "Output file name argument is missing"));
+                }
+            }
+        }
+        None => DEFAULT_CACHE_VERSION
+    };
+    if !SUPPORTED_VERSIONS.contains(&target_version) {
+        return Err(Error::new(ErrorKind::InvalidData,
+                format!("Unsupported target version {}", target_version)))
     };
 
     let mut entries = LinkedHashMap::new();
@@ -168,15 +206,24 @@ fn main() -> Result<(), io::Error> {
                 "Magic string mismatch"));
         }
 
-        if header.version != STATE_CACHE_VERSION {
-            if header.version == 2 {
-                println!("Converting outdated cache version {}",
-                    &header.version);
-            } else {
-                return Err(Error::new(ErrorKind::InvalidData, 
+        if !SUPPORTED_VERSIONS.contains(&header.version) {
+            return Err(Error::new(ErrorKind::InvalidData,
                     format!("Unsupported cache version {}", header.version)))
-            }
         };
+
+        if header.version != target_version {
+            match header.version {
+                v if v > target_version => {
+                    println!("Downgrading to version {}", target_version)
+                },
+                v if v < target_version => {
+                    println!("Upgrading to version {}", target_version)
+                },
+                _   => ()
+            }
+        }
+
+        assert!(header.entry_size == DATA_SIZE + HASH_SIZE);
         
         loop {
             let mut entry = DxvkStateCacheEntry::new();
@@ -189,13 +236,18 @@ fn main() -> Result<(), io::Error> {
                     return Err(e);
                 }
             };
-            if header.version == STATE_CACHE_VERSION {
+            if target_version == header.version {
                 match reader.read_exact(&mut entry.hash) {
                     Ok(_)   =>  (),
                     Err(e)  =>  return Err(e)
                 };
             } else {
-                entry.convert_v2();
+                match target_version {
+                    3 => entry.upgrade_to_v3(),
+                    2 => entry.downgrade_to_v2(),
+                    _ => panic!(format!("Unexected cache version {}",
+                                    header.version))
+                }
                 entry.hash = entry.compute_hash();
                 reader.seek(SeekFrom::Current(HASH_SIZE as i64))?;
             }
@@ -212,11 +264,9 @@ fn main() -> Result<(), io::Error> {
 
     let file = File::create(&output)?;
     let mut writer = BufWriter::new(file);
-    let header = DxvkStateCacheHeader::default();
-
-    writer.write_all(&header.magic)?;
-    writer.write_u32(header.version)?;
-    writer.write_u32(header.entry_size as u32)?;
+    writer.write_all(b"DXVK")?;
+    writer.write_u32(target_version)?;
+    writer.write_u32((DATA_SIZE + HASH_SIZE) as u32)?;
     for entry in &entries {
         writer.write_all(entry.1)?;
         writer.write_all(entry.0)?;
