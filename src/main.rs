@@ -4,8 +4,7 @@ extern crate sha1;
 use std::env;
 use std::ffi::OsStr;
 use std::fs::File;
-use std::io::{self, BufReader, BufWriter, Error, ErrorKind, Read, Seek,
-              SeekFrom, Write};
+use std::io::{self, prelude::*, BufReader, BufWriter, Error, ErrorKind, SeekFrom};
 use std::path::Path;
 
 use linked_hash_map::LinkedHashMap;
@@ -17,8 +16,7 @@ const DATA_SIZE: usize = 1804;
 const HASH_SIZE: usize = 20;
 const MAGIC_STRING: [u8; 4] = *b"DXVK";
 const SHA1_EMPTY: [u8; HASH_SIZE] = [
-    218, 57, 163, 238, 94, 107, 75, 13, 50, 85, 191, 239, 149, 96, 24, 144,
-    175, 216, 7, 9,
+    218, 57, 163, 238, 94, 107, 75, 13, 50, 85, 191, 239, 149, 96, 24, 144, 175, 216, 7, 9,
 ];
 
 struct Config {
@@ -210,10 +208,7 @@ fn main() -> Result<(), io::Error> {
         };
 
         if header.magic != MAGIC_STRING {
-            return Err(Error::new(
-                ErrorKind::InvalidData,
-                "Magic string mismatch"
-            ));
+            return Err(Error::new(ErrorKind::InvalidData, "Magic string mismatch"));
         }
 
         if !SUPPORTED_VERSIONS.contains(&header.version) {
@@ -225,12 +220,8 @@ fn main() -> Result<(), io::Error> {
 
         if header.version != config.version {
             match header.version {
-                v if v > config.version => {
-                    println!("Downgrading to version {}", config.version)
-                },
-                v if v < config.version => {
-                    println!("Upgrading to version {}", config.version)
-                },
+                v if v > config.version => println!("Downgrading to version {}", config.version),
+                v if v < config.version => println!("Upgrading to version {}", config.version),
                 _ => ()
             }
         }
@@ -257,10 +248,7 @@ fn main() -> Result<(), io::Error> {
                 match config.version {
                     3 => entry.upgrade_to_v3(),
                     2 => entry.downgrade_to_v2(),
-                    _ => panic!(format!(
-                        "Unexpected cache version {}",
-                        header.version
-                    ))
+                    _ => panic!(format!("Unexpected cache version {}", header.version))
                 }
                 entry.hash = entry.compute_hash();
                 reader.seek(SeekFrom::Current(HASH_SIZE as i64))?;
@@ -272,10 +260,7 @@ fn main() -> Result<(), io::Error> {
     }
 
     if entries.is_empty() {
-        return Err(Error::new(
-            ErrorKind::Other,
-            "No valid cache entries found"
-        ));
+        return Err(Error::new(ErrorKind::Other, "No valid cache entries found"));
     }
 
     let file = File::create(&config.output)?;
