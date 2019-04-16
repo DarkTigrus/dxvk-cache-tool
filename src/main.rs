@@ -1,6 +1,3 @@
-extern crate linked_hash_map;
-extern crate sha1;
-
 use std::env;
 use std::ffi::OsStr;
 use std::fs::File;
@@ -65,7 +62,7 @@ impl DxvkStateCacheEntry {
         self.compute_hash() == self.hash
     }
 
-    fn upgrade_to_v3(&mut self) {
+    fn upgrade_v2_to_v3(&mut self) {
         static OFFSET_1: usize = 1204;
         static OFFSET_2: usize = 1208;
 
@@ -81,7 +78,7 @@ impl DxvkStateCacheEntry {
         }
     }
 
-    fn downgrade_to_v2(&mut self) {
+    fn downgrade_v3_to_v2(&mut self) {
         static OFFSET_1: usize = 1204;
         static OFFSET_2: usize = 1208;
 
@@ -150,11 +147,11 @@ fn process_args() -> Config {
             },
             "-o" | "--output" => {
                 config.output = args[i + 1].to_owned();
-                args.drain(i..i + 2);
+                args.drain(i..=i + 1);
             },
             "-t" | "--target" => {
                 config.version = args[i + 1].parse().expect("Not a number");
-                args.drain(i..i + 2);
+                args.drain(i..=i + 1);
             },
             _ => ()
         }
@@ -246,8 +243,8 @@ fn main() -> Result<(), io::Error> {
                 };
             } else {
                 match config.version {
-                    3 => entry.upgrade_to_v3(),
-                    2 => entry.downgrade_to_v2(),
+                    3 => entry.upgrade_v2_to_v3(),
+                    2 => entry.downgrade_v3_to_v2(),
                     _ => panic!(format!("Unexpected cache version {}", header.version))
                 }
                 entry.hash = entry.compute_hash();
