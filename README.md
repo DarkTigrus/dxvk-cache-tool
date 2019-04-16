@@ -5,9 +5,15 @@ Standalone dxvk-cache merger
 Usage
 -----
 ```
-dxvk-cache-tool [OPTION]... [FILE]...
+dxvk-cache-tool [OPTION]... <FILE>...
 
-    OPTIONS:    -o, --output [FILE]	Output file
-                -t, --target [2,3]	Target version
+    OPTIONS:    -o, --output <FILE>	Output file
+                -t, --target 2|3	Target version
+```
 
+Building
+-----
+```
+cargo build --release
+target/release/dxvk-cache-tool
 ```
