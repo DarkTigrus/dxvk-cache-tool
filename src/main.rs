@@ -63,34 +63,20 @@ impl DxvkStateCacheEntry {
     }
 
     fn convert(&mut self, current: u32, target: u32) {
-        if current == target {
-            return;
-        }
-
         let result = if current < target {
             match current {
-                2 => {
-                    self.upgrade_v2_to_v3();
-                    3
-                },
-                3 => {
-                    self.upgrade_v3_to_v4();
-                    4
-                },
+                3 => self.upgrade_v3_to_v4(),
+                2 => self.upgrade_v2_to_v3(),
                 _ => unreachable!()
             }
+            current + 1
         } else {
             match current {
-                4 => {
-                    self.downgrade_v4_to_v3();
-                    3
-                },
-                3 => {
-                    self.downgrade_v3_to_v2();
-                    2
-                },
+                4 => self.downgrade_v4_to_v3(),
+                3 => self.downgrade_v3_to_v2(),
                 _ => unreachable!()
             }
+            current - 1
         };
 
         if result != target {
