@@ -7,13 +7,13 @@ use std::path::Path;
 use linked_hash_map::LinkedHashMap;
 use sha1::Sha1;
 
-const SUPPORTED_VERSIONS: [u32; 2] = [2, 3];
-const DEFAULT_CACHE_VERSION: u32 = 3;
+const SUPPORTED_VERSIONS: [u32; 3] = [2, 3, 4];
+const DEFAULT_CACHE_VERSION: u32 = 4;
 const DATA_SIZE: usize = 1804;
 const HASH_SIZE: usize = 20;
 const MAGIC_STRING: [u8; 4] = *b"DXVK";
 const SHA1_EMPTY: [u8; HASH_SIZE] = [
-    218, 57, 163, 238, 94, 107, 75, 13, 50, 85, 191, 239, 149, 96, 24, 144, 175, 216, 7, 9,
+    218, 57, 163, 238, 94, 107, 75, 13, 50, 85, 191, 239, 149, 96, 24, 144, 175, 216, 7, 9
 ];
 
 struct Config {
@@ -60,6 +60,26 @@ impl DxvkStateCacheEntry {
 
     fn is_valid(&self) -> bool {
         self.compute_hash() == self.hash
+    }
+
+    fn upgrade_v3_to_v4(&mut self) {
+        static OFFSET: usize = 1244;
+
+        // xsAlphaCompareOp = VK_COMPARE_OP_ALWAYS
+        if let Some(e) = self.data.get_mut(OFFSET) {
+            assert!(*e == 0);
+            *e = 7;
+        }
+    }
+
+    fn downgrade_v4_to_v3(&mut self) {
+        static OFFSET: usize = 1244;
+
+        // xsAlphaCompareOp = VK_COMPARE_OP_NEVER
+        if let Some(e) = self.data.get_mut(OFFSET) {
+            assert!(*e == 7);
+            *e = 0;
+        }
     }
 
     fn upgrade_v2_to_v3(&mut self) {
@@ -133,7 +153,7 @@ fn print_help() {
     println!("USAGE:\n\tdxvk-cache-tool [OPTION]... <FILE>...\n");
     println!("OPTIONS:");
     println!("\t-o, --output <FILE>\tOutput file");
-    println!("\t-t, --target <2|3>\tTarget version");
+    println!("\t-t, --target 2|3|4\tTarget version");
 }
 
 fn process_args() -> Config {
@@ -215,12 +235,10 @@ fn main() -> Result<(), io::Error> {
             ));
         };
 
-        if header.version != config.version {
-            match header.version {
-                v if v > config.version => println!("Downgrading to version {}", config.version),
-                v if v < config.version => println!("Upgrading to version {}", config.version),
-                _ => ()
-            }
+        if header.version > config.version {
+            println!("Downgrading to version {}", config.version)
+        } else {
+            println!("Upgrading to version {}", config.version)
         }
 
         assert!(header.entry_size == DATA_SIZE + HASH_SIZE);
@@ -243,8 +261,20 @@ fn main() -> Result<(), io::Error> {
                 };
             } else {
                 match config.version {
-                    3 => entry.upgrade_v2_to_v3(),
-                    2 => entry.downgrade_v3_to_v2(),
+                    4 => entry.upgrade_v3_to_v4(),
+                    3 => {
+                        if header.version < config.version {
+                            entry.upgrade_v2_to_v3()
+                        } else {
+                            entry.downgrade_v4_to_v3()
+                        }
+                    },
+                    2 => {
+                        if header.version > 3 {
+                            entry.downgrade_v4_to_v3();
+                        }
+                        entry.downgrade_v3_to_v2()
+                    },
                     _ => panic!(format!("Unexpected cache version {}", header.version))
                 }
                 entry.hash = entry.compute_hash();
