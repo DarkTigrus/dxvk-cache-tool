@@ -62,6 +62,42 @@ impl DxvkStateCacheEntry {
         self.compute_hash() == self.hash
     }
 
+    fn convert(&mut self, current: u32, target: u32) {
+        if current == target {
+            return;
+        }
+
+        let result = if current < target {
+            match current {
+                2 => {
+                    self.upgrade_v2_to_v3();
+                    3
+                },
+                3 => {
+                    self.upgrade_v3_to_v4();
+                    4
+                },
+                _ => unreachable!()
+            }
+        } else {
+            match current {
+                4 => {
+                    self.downgrade_v4_to_v3();
+                    3
+                },
+                3 => {
+                    self.downgrade_v3_to_v2();
+                    2
+                },
+                _ => unreachable!()
+            }
+        };
+
+        if result != target {
+            self.convert(result, target);
+        }
+    }
+
     fn upgrade_v3_to_v4(&mut self) {
         static OFFSET: usize = 1244;
 
@@ -260,23 +296,7 @@ fn main() -> Result<(), io::Error> {
                     Err(e) => return Err(e)
                 };
             } else {
-                match config.version {
-                    4 => entry.upgrade_v3_to_v4(),
-                    3 => {
-                        if header.version < config.version {
-                            entry.upgrade_v2_to_v3()
-                        } else {
-                            entry.downgrade_v4_to_v3()
-                        }
-                    },
-                    2 => {
-                        if header.version > 3 {
-                            entry.downgrade_v4_to_v3();
-                        }
-                        entry.downgrade_v3_to_v2()
-                    },
-                    _ => panic!(format!("Unexpected cache version {}", header.version))
-                }
+                entry.convert(header.version, config.version);
                 entry.hash = entry.compute_hash();
                 reader.seek(SeekFrom::Current(HASH_SIZE as i64))?;
             }
