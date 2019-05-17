@@ -7,9 +7,10 @@ use std::path::Path;
 use linked_hash_map::LinkedHashMap;
 use sha1::Sha1;
 
-const SUPPORTED_VERSIONS: [u32; 3] = [2, 3, 4];
-const DEFAULT_CACHE_VERSION: u32 = 4;
-const DATA_SIZE: usize = 1804;
+const SUPPORTED_VERSIONS: [u32; 4] = [2, 3, 4, 5];
+const DEFAULT_CACHE_VERSION: u32 = 5;
+const DATA_SIZE_V2: usize = 1804;
+const DATA_SIZE_V5: usize = 1836;
 const HASH_SIZE: usize = 20;
 const MAGIC_STRING: [u8; 4] = *b"DXVK";
 const SHA1_EMPTY: [u8; HASH_SIZE] = [
@@ -39,14 +40,14 @@ struct DxvkStateCacheHeader {
 }
 
 struct DxvkStateCacheEntry {
-    data: [u8; DATA_SIZE],
+    data: Vec<u8>,
     hash: [u8; HASH_SIZE]
 }
 
 impl DxvkStateCacheEntry {
-    fn new() -> Self {
+    fn with_length(length: usize) -> Self {
         DxvkStateCacheEntry {
-            data: [0; DATA_SIZE],
+            data: vec![0; length],
             hash: [0; HASH_SIZE]
         }
     }
@@ -65,6 +66,7 @@ impl DxvkStateCacheEntry {
     fn convert(&mut self, current: u32, target: u32) {
         let result = if current < target {
             match current {
+                4 => unimplemented!("Upgrading to version 5 is not supported"),
                 3 => self.upgrade_v3_to_v4(),
                 2 => self.upgrade_v2_to_v3(),
                 _ => unreachable!()
@@ -72,6 +74,7 @@ impl DxvkStateCacheEntry {
             current + 1
         } else {
             match current {
+                5 => unimplemented!("Downgrading to version 4 is not supported"),
                 4 => self.downgrade_v4_to_v3(),
                 3 => self.downgrade_v3_to_v2(),
                 _ => unreachable!()
@@ -174,8 +177,8 @@ fn print_help() {
     println!("Standalone dxvk-cache merger");
     println!("USAGE:\n\tdxvk-cache-tool [OPTION]... <FILE>...\n");
     println!("OPTIONS:");
-    println!("\t-o, --output <FILE>\tOutput file");
-    println!("\t-t, --target 2|3|4\tTarget version");
+    println!("\t-o, --output FILE\tOutput file");
+    println!("\t-t, --target 2-5\tTarget version");
 }
 
 fn process_args() -> Config {
@@ -263,10 +266,8 @@ fn main() -> Result<(), io::Error> {
             println!("Upgrading to version {}", config.version)
         }
 
-        assert!(header.entry_size == DATA_SIZE + HASH_SIZE);
-
         loop {
-            let mut entry = DxvkStateCacheEntry::new();
+            let mut entry = DxvkStateCacheEntry::with_length(header.entry_size - HASH_SIZE);
             match reader.read_exact(&mut entry.data) {
                 Ok(_) => (),
                 Err(e) => {
@@ -296,11 +297,16 @@ fn main() -> Result<(), io::Error> {
         return Err(Error::new(ErrorKind::Other, "No valid cache entries found"));
     }
 
+    let entry_size = match config.version {
+        5 => DATA_SIZE_V5 + HASH_SIZE,
+        _ => DATA_SIZE_V2 + HASH_SIZE
+    };
+
     let file = File::create(&config.output)?;
     let mut writer = BufWriter::new(file);
     writer.write_all(&MAGIC_STRING)?;
     writer.write_u32(config.version)?;
-    writer.write_u32((DATA_SIZE + HASH_SIZE) as u32)?;
+    writer.write_u32(entry_size as u32)?;
     for (hash, data) in &entries {
         writer.write_all(data)?;
         writer.write_all(hash)?;

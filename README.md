@@ -7,8 +7,8 @@ Usage
 ```
 dxvk-cache-tool [OPTION]... <FILE>...
 
-    OPTIONS:    -o, --output <FILE>	Output file
-                -t, --target 2|3|4	Target version
+    OPTIONS:    -o, --output FILE   Output file
+                -t, --target 2-5    Target version
 ```
 
 Building
