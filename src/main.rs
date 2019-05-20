@@ -260,10 +260,10 @@ fn main() -> Result<(), io::Error> {
             ));
         };
 
-        if header.version > config.version {
-            println!("Downgrading to version {}", config.version)
-        } else {
-            println!("Upgrading to version {}", config.version)
+        match header.version {
+            v if v > config.version => println!("Downgrading to version {}", config.version),
+            v if v < config.version => println!("Upgrading to version {}", config.version),
+            _ => ()
         }
 
         loop {
