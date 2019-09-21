@@ -7,10 +7,11 @@ use std::path::Path;
 use linked_hash_map::LinkedHashMap;
 use sha1::Sha1;
 
-const SUPPORTED_VERSIONS: [u32; 4] = [2, 3, 4, 5];
-const DEFAULT_CACHE_VERSION: u32 = 5;
+const SUPPORTED_VERSIONS: [u32; 5] = [2, 3, 4, 5, 6];
+const DEFAULT_CACHE_VERSION: u32 = 6;
 const DATA_SIZE_V2: usize = 1804;
 const DATA_SIZE_V5: usize = 1836;
+const DATA_SIZE_V6: usize = 1868;
 const HASH_SIZE: usize = 20;
 const MAGIC_STRING: [u8; 4] = *b"DXVK";
 const SHA1_EMPTY: [u8; HASH_SIZE] = [
@@ -66,6 +67,7 @@ impl DxvkStateCacheEntry {
     fn convert(&mut self, current: u32, target: u32) {
         let result = if current < target {
             match current {
+                5 => unimplemented!("Upgrading to version 6 is not supported"),
                 4 => unimplemented!("Upgrading to version 5 is not supported"),
                 3 => self.upgrade_v3_to_v4(),
                 2 => self.upgrade_v2_to_v3(),
@@ -74,6 +76,7 @@ impl DxvkStateCacheEntry {
             current + 1
         } else {
             match current {
+                6 => unimplemented!("Downgrading to version 5 is not supported"),
                 5 => unimplemented!("Downgrading to version 4 is not supported"),
                 4 => self.downgrade_v4_to_v3(),
                 3 => self.downgrade_v3_to_v2(),
@@ -178,7 +181,7 @@ fn print_help() {
     println!("USAGE:\n\tdxvk-cache-tool [OPTION]... <FILE>...\n");
     println!("OPTIONS:");
     println!("\t-o, --output FILE\tOutput file");
-    println!("\t-t, --target 2-5\tTarget version");
+    println!("\t-t, --target [2-6]\tTarget version");
 }
 
 fn process_args() -> Config {
@@ -298,6 +301,7 @@ fn main() -> Result<(), io::Error> {
     }
 
     let entry_size = match config.version {
+        6 => DATA_SIZE_V6 + HASH_SIZE,
         5 => DATA_SIZE_V5 + HASH_SIZE,
         _ => DATA_SIZE_V2 + HASH_SIZE
     };
