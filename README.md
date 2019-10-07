@@ -8,7 +8,6 @@ Usage
 dxvk-cache-tool [OPTION]... <FILE>...
 
     OPTIONS:    -o, --output FILE   Output file
-                -t, --target [2-6]  Target version
 ```
 
 Building
