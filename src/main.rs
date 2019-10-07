@@ -1,7 +1,7 @@
 use std::env;
 use std::ffi::OsStr;
 use std::fs::File;
-use std::io::{self, prelude::*, BufReader, BufWriter, Error, ErrorKind};
+use std::io::{self, prelude::*, BufReader, BufWriter};
 use std::path::Path;
 
 use linked_hash_map::LinkedHashMap;
@@ -57,6 +57,37 @@ impl DxvkStateCacheEntry {
         let hash = hasher.digest().bytes();
 
         hash == self.hash
+    }
+}
+
+#[derive(Debug)]
+enum ErrorKind {
+    IoError,
+    InvalidInput,
+    InvalidData
+}
+
+#[derive(Debug)]
+struct AppError {
+    kind:    ErrorKind,
+    message: String
+}
+
+impl AppError {
+    fn new<S: Into<String>>(kind: ErrorKind, message: S) -> Self {
+        AppError {
+            kind,
+            message: message.into()
+        }
+    }
+}
+
+impl From<io::Error> for AppError {
+    fn from(error: io::Error) -> Self {
+        AppError {
+            kind:    ErrorKind::IoError,
+            message: error.to_string()
+        }
     }
 }
 
@@ -118,26 +149,23 @@ fn process_args() -> Config {
     config
 }
 
-fn main() -> Result<(), io::Error> {
+fn main() -> Result<(), AppError> {
     let mut config = process_args();
 
+    println!("Merging files {:?}", config.files);
     let mut entries = LinkedHashMap::new();
     for file in config.files {
-        println!("Importing {}", file);
         let path = Path::new(&file);
-
-        if !path.exists() {
-            return Err(Error::new(ErrorKind::NotFound, "File does not exists"));
-        }
+        println!("Importing file {:?}", path.file_name().unwrap());
 
         if path.extension().and_then(OsStr::to_str) != Some("dxvk-cache") {
-            return Err(Error::new(
+            return Err(AppError::new(
                 ErrorKind::InvalidInput,
-                "File extension mismatch"
+                "File extension mismatch: expected .dxvk-cache"
             ));
         }
 
-        let file = File::open(path).expect("Unable to open file");
+        let file = File::open(path)?;
         let mut reader = BufReader::new(file);
 
         let header = DxvkStateCacheHeader {
@@ -151,22 +179,29 @@ fn main() -> Result<(), io::Error> {
         };
 
         if header.magic != MAGIC_STRING {
-            return Err(Error::new(ErrorKind::InvalidData, "Magic string mismatch"));
+            return Err(AppError::new(
+                ErrorKind::InvalidData,
+                "Magic string mismatch"
+            ));
         }
 
         if config.version == 0 {
             config.version = header.version;
             config.entry_size = header.entry_size;
-            println!("Detected cache version {}", header.version);
+            println!("Detected state cache version v{}", header.version);
         }
 
         if header.version != config.version {
-            return Err(Error::new(
-                ErrorKind::InvalidData,
-                format!("Cache version mismatch. Found {}", header.version)
+            return Err(AppError::new(
+                ErrorKind::InvalidInput,
+                format!(
+                    "State cache version mismatch: expected v{}, found v{}",
+                    header.version, config.version
+                )
             ));
         }
 
+        let entries_len = entries.len();
         loop {
             let mut entry = DxvkStateCacheEntry::with_length(header.entry_size - HASH_SIZE);
             match reader.read_exact(&mut entry.data) {
@@ -175,21 +210,22 @@ fn main() -> Result<(), io::Error> {
                     if e.kind() == io::ErrorKind::UnexpectedEof {
                         break;
                     }
-                    return Err(e);
+                    return Err(AppError::from(e));
                 }
             };
-            match reader.read_exact(&mut entry.hash) {
-                Ok(_) => (),
-                Err(e) => return Err(e)
-            }
+            reader.read_exact(&mut entry.hash)?;
             if entry.is_valid() {
                 entries.insert(entry.hash, entry.data);
             }
         }
+        println!("Imported {} entries", entries.len() - entries_len);
     }
 
     if entries.is_empty() {
-        return Err(Error::new(ErrorKind::Other, "No valid cache entries found"));
+        return Err(AppError::new(
+            ErrorKind::InvalidData,
+            "No valid state cache entries found"
+        ));
     }
 
     let file = File::create(&config.output)?;
@@ -203,7 +239,7 @@ fn main() -> Result<(), io::Error> {
     }
 
     println!(
-        "Merged cache {} contains {} entries",
+        "Merged state cache {} contains {} entries",
         &config.output,
         entries.len()
     );
