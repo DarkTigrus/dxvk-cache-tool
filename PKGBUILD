@@ -1,20 +1,13 @@
-pkgname=dxvk-cache-tool-git
-pkgver=0.3.0
+pkgname=dxvk-cache-tool
+pkgver=1.0.0
 pkgrel=1
 pkgdesc='Standalone dxvk-cache merger'
 url='https://github.com/DarkTigrus/dxvk-cache-tool/'
 arch=('x86_64')
 license=('MIT' 'Apache')
 makedepends=('git' 'rust' 'cargo')
-provides=("dxvk-cache-tool=$pkgver")
-conflicts=("dxvk-cache-tool")
-source=("$pkgname::git+https://github.com/DarkTigrus/dxvk-cache-tool.git")
+source=("$pkgname::git+https://github.com/DarkTigrus/dxvk-cache-tool.git#tag=v1.0.0")
 md5sums=('SKIP')
-
-pkgver() {
-  cd $pkgname
-  printf "r%s.%s" "$(git rev-list --count HEAD)" "$(git rev-parse --short HEAD)"
-}
 
 build() {
   cd $srcdir/$pkgname

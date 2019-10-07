@@ -2,7 +2,7 @@
 # It is not intended for manual editing.
 [[package]]
 name = "dxvk-cache-tool"
-version = "0.6.0"
+version = "1.0.0"
 dependencies = [
  "linked-hash-map 0.5.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "sha1 0.6.0 (registry+https://github.com/rust-lang/crates.io-index)",

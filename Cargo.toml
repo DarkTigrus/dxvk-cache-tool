@@ -1,6 +1,6 @@
 [package]
 name = "dxvk-cache-tool"
-version = "0.6.0"
+version = "1.0.0"
 authors = ["Pavel Kolchev <pavelkolchev@gmail.com>"]
 description = "Standalone dxvk-cache merger"
 license = "MIT/Apache-2.0"
