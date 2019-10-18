@@ -119,9 +119,11 @@ trait WriteEx: Write {
 
 fn print_help() {
     println!("Standalone dxvk-cache merger");
-    println!("USAGE:\n\tdxvk-cache-tool [OPTION]... <FILE>...\n");
+    println!("USAGE:\n\tdxvk-cache-tool [OPTION]... <FILEs>...\n");
     println!("OPTIONS:");
-    println!("\t-o, --output FILE\tOutput file");
+    println!("\t-o, --output FILE\tSet output file name");
+    println!("\t-h, --help\t\tDisplay this help and exit");
+    println!("\t-V, --version\t\tOutput version information and exit");
 }
 
 fn process_args() -> Config {
@@ -136,6 +138,10 @@ fn process_args() -> Config {
             "-o" | "--output" => {
                 config.output = args[i + 1].to_owned();
                 args.drain(i..=i + 1);
+            },
+            "-V" | "--version" => {
+                println!("{} {}", env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION"));
+                std::process::exit(0);
             },
             _ => ()
         }
