@@ -136,9 +136,8 @@ fn main() -> Result<(), Error> {
 
     println!("Merging files {:?}", config.files);
     let mut entries = LinkedHashMap::new();
-    for path in config.files {
-        println!("Reading file {}", path.display());
-
+    let files_len = config.files.len();
+    for (i, path) in config.files.iter().enumerate() {
         if path.extension().and_then(OsStr::to_str) != Some("dxvk-cache") {
             return Err(Error::new(
                 ErrorKind::InvalidInput,
@@ -171,13 +170,13 @@ fn main() -> Result<(), Error> {
                 ErrorKind::InvalidInput,
                 format!(
                     "State cache version mismatch: expected v{}, found v{}",
-                    header.version, config.version
+                    config.version, header.version
                 )
             ));
         }
 
         let entries_len = entries.len();
-
+        print!("Merging {} ({}/{})... ", path.display(), i + 1, files_len);
         loop {
             let res = match config.edition {
                 DxvkStateCacheEdition::Standard => read_entry(&mut reader),
@@ -197,7 +196,7 @@ fn main() -> Result<(), Error> {
                 }
             }
         }
-        println!("Imported {} new entries", entries.len() - entries_len);
+        println!("{} new entries", entries.len() - entries_len);
     }
 
     if entries.is_empty() {
@@ -206,6 +205,12 @@ fn main() -> Result<(), Error> {
             "No valid state cache entries found"
         ));
     }
+
+    println!(
+        "Writing {} entries to file {}",
+        entries.len(),
+        config.output.display()
+    );
 
     let header = DxvkStateCacheHeader {
         magic:      MAGIC_STRING,
@@ -223,11 +228,7 @@ fn main() -> Result<(), Error> {
         };
     }
 
-    println!(
-        "Merged state cache file {} contains {} entries",
-        config.output.display(),
-        entries.len()
-    );
+    println!("Finished");
 
     Ok(())
 }
