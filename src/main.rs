@@ -134,9 +134,12 @@ fn process_args() -> Config {
 fn main() -> Result<(), Error> {
     let mut config = process_args();
 
-    println!("Merging files {:?}", config.files);
+    print!("Merging files");
+    for path in config.files.iter() {
+        print!(" {}", path.file_name().and_then(OsStr::to_str).unwrap());
+    }
+    println!();
     let mut entries = LinkedHashMap::new();
-    let files_len = config.files.len();
     for (i, path) in config.files.iter().enumerate() {
         if path.extension().and_then(OsStr::to_str) != Some("dxvk-cache") {
             return Err(Error::new(
@@ -176,7 +179,12 @@ fn main() -> Result<(), Error> {
         }
 
         let entries_len = entries.len();
-        print!("Merging {} ({}/{})... ", path.display(), i + 1, files_len);
+        print!(
+            "Merging {} ({}/{})... ",
+            path.file_name().and_then(OsStr::to_str).unwrap(),
+            i + 1,
+            config.files.len()
+        );
         loop {
             let res = match config.edition {
                 DxvkStateCacheEdition::Standard => read_entry(&mut reader),
@@ -209,7 +217,7 @@ fn main() -> Result<(), Error> {
     println!(
         "Writing {} entries to file {}",
         entries.len(),
-        config.output.display()
+        config.output.file_name().and_then(OsStr::to_str).unwrap()
     );
 
     let header = DxvkStateCacheHeader {
