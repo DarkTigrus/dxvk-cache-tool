@@ -178,6 +178,7 @@ fn main() -> Result<(), Error> {
             ));
         }
 
+        let mut omitted = 0;
         let entries_len = entries.len();
         print!(
             "Merging {} ({}/{})... ",
@@ -196,15 +197,18 @@ fn main() -> Result<(), Error> {
                 Ok(e) => {
                     if e.is_valid() {
                         entries.insert(e.hash, e);
+                    } else {
+                        omitted += 1;
                     }
                 },
                 Err(ref e) if e.kind() == ErrorKind::IoError(io::ErrorKind::UnexpectedEof) => break,
-                Err(e) => {
-                    return Err(e);
-                }
+                Err(e) => return Err(e)
             }
         }
         println!("{} new entries", entries.len() - entries_len);
+        if omitted > 0 {
+            println!("{} entries are omitted as invalid", omitted);
+        }
     }
 
     if entries.is_empty() {
