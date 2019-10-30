@@ -1,5 +1,5 @@
 pkgname=dxvk-cache-tool
-pkgver=1.1.1
+pkgver=1.1.2
 pkgrel=1
 pkgdesc='Standalone dxvk-cache merger'
 url='https://github.com/DarkTigrus/dxvk-cache-tool/'
