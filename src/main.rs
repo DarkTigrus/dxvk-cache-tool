@@ -35,7 +35,7 @@ impl<R: Read> ReadEx for BufReader<R> {}
 trait ReadEx: Read {
     fn read_u32(&mut self) -> io::Result<u32> {
         let mut buf = [0; 4];
-        match self.read(&mut buf) {
+        match self.read_exact(&mut buf) {
             Ok(_) => Ok((u32::from(buf[0]))
                 + (u32::from(buf[1]) << 8)
                 + (u32::from(buf[2]) << 16)
@@ -46,7 +46,7 @@ trait ReadEx: Read {
 
     fn read_u24(&mut self) -> io::Result<u32> {
         let mut buf = [0; 3];
-        match self.read(&mut buf) {
+        match self.read_exact(&mut buf) {
             Ok(_) => Ok((u32::from(buf[0])) + (u32::from(buf[1]) << 8) + (u32::from(buf[2]) << 16)),
             Err(e) => Err(e)
         }
@@ -54,7 +54,7 @@ trait ReadEx: Read {
 
     fn read_u8(&mut self) -> io::Result<u8> {
         let mut buf = [0; 1];
-        match self.read(&mut buf) {
+        match self.read_exact(&mut buf) {
             Ok(_) => Ok(buf[0]),
             Err(e) => Err(e)
         }
