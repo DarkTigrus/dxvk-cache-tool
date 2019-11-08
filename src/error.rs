@@ -20,10 +20,6 @@ impl Error {
             message: message.into()
         }
     }
-
-    pub fn kind(&self) -> ErrorKind {
-        self.kind
-    }
 }
 
 impl From<io::Error> for Error {
